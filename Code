@@ -1,0 +1,45 @@
+import torch
+from transformers import AutoTokenizer, AutoModel
+from sentence_transformers import SentenceTransformer
+import faiss
+import pdfplumber
+# Load pre-trained models
+tokenizer = AutoTokenizer.from_pretrained('sentence-transformers/all-MiniLM-L6-v2')
+model = AutoModel.from_pretrained('sentence-transformers/all-MiniLM-L6-v2')
+embedding_model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
+pdf_files="https://www.hunter.cuny.edu/dolciani/pdf_files/workshop-materials/mmc-presentations/tables-charts-and-graphs-with-examples-from.pdf"
+# Function to embed text
+def embed_text(text):
+    inputs = tokenizer(text, return_tensors='pt')
+    with torch.no_grad():
+        embeddings = model(**inputs).pooler_output
+    return embeddings.squeeze(0).cpu().numpy()
+
+# Create Faiss index
+index = faiss.IndexFlatL2(embedding_model.get_sentence_embedding_dimension())
+
+# Load and embed PDF data
+for pdf_file in pdf_files:
+    pdf=pdfplumber.open(pdf_file)
+    page=pdf.pages[0]
+    text = page.extract_text()
+    chunks = segment_text(text)
+    embeddings = [embed_text(chunk) for chunk in chunks]
+    index.add(np.array(embeddings))
+
+# Handle user query
+def handle_query(query):
+    query_embedding = embed_text(query)
+    distances, indices = index.search(query_embedding.reshape(1, -1), k=5)
+
+    # Retrieve relevant chunks
+    relevant_chunks = [chunks[i] for i in indices[0]]
+
+    # Generate response using LLM (e.g., with Hugging Face's pipelines)
+    response = generate_response(query, relevant_chunks)
+    return response
+
+# Example usage
+query = "What is the unemployment rate for people with a bachelor's degree?"
+response = handle_query(query)
+print(response)
